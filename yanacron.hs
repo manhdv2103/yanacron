@@ -1,14 +1,18 @@
 import Control.Concurrent (forkIO, threadDelay)
 import Control.Exception
 import Data.List
+import Data.Maybe
 import Data.Text (replace, pack, unpack)
+import Data.Time
 import Text.Regex.Posix
+import System.Directory
 import System.Environment
 import System.IO     
 import System.IO.Error
 import System.Process
 
 -- Data & Type
+
 data Env = Env { envVar :: String
                 , value :: String
                 } deriving (Eq, Show, Read)
@@ -27,14 +31,18 @@ type Envs = [Env]
 type Jobs = [Job]
 type PeriodJobs = [PeriodJob]
 
+
 -- File and directory
+
 yanacrontab :: FilePath
 yanacrontab = "./yanacrontab"
 
 spool :: FilePath
 spool = "./spool/yanacron/"
 
+
 -- Data making functions
+
 mkEnv :: [String] -> Env
 mkEnv xs = Env {envVar=xs !! 0, value=xs !! 1}
 
@@ -44,10 +52,12 @@ mkJob xs = Job {jPeriods=read (xs !! 0), jDelays=read (xs !! 1), jIdent=xs !! 2,
 mkPeriodJob :: [String] -> PeriodJob
 mkPeriodJob xs = PeriodJob {pjPeriods=xs !! 0, pjDelays=read (xs !! 1), pjIdent=xs !! 2, pjCommand=xs !! 3}
 
--- Tab line manipulation functions
+
+-- Merge lines separated by the backslash (\)
 mergeTabLines :: String -> [String]
 mergeTabLines l = lines $ unpack $ replace (pack "\\\n") (pack "") (pack l)
 
+-- Parse tab lines into environment variables or jobs
 parseTabLines :: [String] -> (Envs, Jobs, PeriodJobs)
 parseTabLines = foldl' pushLine ([], [], [])
     where 
@@ -59,6 +69,39 @@ parseTabLines = foldl' pushLine ([], [], [])
         | otherwise = (e, j, pj)
     extractMatches = tail . head
 
+-- Parse the date with the correct format
+parseDate :: String -> Maybe Day
+parseDate s = parseTimeM True defaultTimeLocale "%0Y%m%d" s :: Maybe Day
+
+-- Decide if the job will be run today or not
+willRun :: Int -> Day -> Maybe Day -> Bool
+willRun period currentDay lastRun = case lastRun of
+    Nothing -> True
+    Just val -> daysDiff >= fromIntegral period
+        where daysDiff = diffDays currentDay val
+
+--createCommand :: String -> Int -> String
+--runCommand :: String -> IO ()
+
+-- Run the job
+runJob :: Job -> IO()
+runJob job = do
+    currentTime <- getCurrentTime
+
+    let spoolFile = spool ++ (jIdent job)
+    fileExist <- doesFileExist spoolFile
+
+    lastRunStr <- if fileExist
+        then readFile spoolFile
+        else return ""
+
+    let currentDay = utctDay currentTime
+        lastRun = parseDate lastRunStr
+        run = willRun (jPeriods job) currentDay lastRun
+
+    putStrLn (show run ++ " " ++ jIdent job)
+
+
 main = toTry `catch` handler
 
 toTry :: IO ()
@@ -67,7 +110,7 @@ toTry = do
     if length args == 0 then do
         contents <- readFile yanacrontab
         let (envs, jobs, periodJobs) = parseTabLines $ mergeTabLines contents
-        mapM_ (forkIO . callCommand . jCommand) jobs
+        mapM_ (forkIO . runJob) jobs
     else return ()
 
 handler :: IOError -> IO ()
