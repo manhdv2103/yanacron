@@ -30,10 +30,8 @@ data PeriodJob = PeriodJob { pjPeriods :: String
                 , pjCommand :: String
                 } deriving (Eq, Show, Read)
 
-type Envs = [Env]
-type Jobs = [Job]
-type PeriodJobs = [PeriodJob]
-
+type InvalidParsedLine = Int
+type ParseTabGroup = ([Env], [Job], [PeriodJob], [InvalidParsedLine])
 
 -- File and directory
 
@@ -61,20 +59,26 @@ mergeTabLines :: String -> [String]
 mergeTabLines l = lines $ unpack $ replace (pack "\\\n") (pack "") (pack l)
 
 -- Parse tab lines into environment variables or jobs
-parseTabLines :: [String] -> (Envs, Jobs, PeriodJobs)
-parseTabLines = foldl' pushLine ([], [], [])
+-- Regexes taken from https://github.com/cronie-crond/cronie/blob/master/anacron/readtab.c#L287
+parseTabLines :: [String] -> ParseTabGroup
+parseTabLines = foldl' pushLine ([], [], [], []) . createLineNumber
     where 
-    pushLine :: (Envs, Jobs, PeriodJobs) -> String -> (Envs, Jobs, PeriodJobs)
-    pushLine (e, j, pj) l
-        | let res = (l =~ "^[ \t]*([^ \t=]+)[ \t]*=(.*)$"), not $ null res == True = (e ++ [mkEnv $ extractMatches res], j, pj) -- Read environment line
-        | let res = (l =~ "^[ \t]*([[:digit:]]+)[ \t]+([[:digit:]]+)[ \t]+([^ \t/]+)[ \t]+([^ \t].*)$"), not $ null res = (e, j ++ [mkJob $ extractMatches res], pj) -- Read job line
-        | let res = (l =~ "^[ \t]*(@[^ \t]+)[ \t]+([[:digit:]]+)[ \t]+([^ \t/]+)[ \t]+([^ \t].*)$"), not $ null res = (e, j, pj ++ [mkPeriodJob $ extractMatches res]) -- Read period job line
-        | otherwise = (e, j, pj)
+    createLineNumber = zip [1..]
+    pushLine :: ParseTabGroup -> (Int, String) -> ParseTabGroup
+    pushLine (e, j, pj, el) (ln, l)
+        | l =~ "^[ \t]*($|#)" = (e, j, pj, el) -- Ignore empty line
+        | let res = (l =~ "^[ \t]*([^ \t=]+)[ \t]*=(.*)$"), not $ null res = (e ++ [mkEnv $ extractMatches res], j, pj, el) -- Read environment line
+        | let res = (l =~ "^[ \t]*([[:digit:]]+)[ \t]+([[:digit:]]+)[ \t]+([^ \t/]+)[ \t]+([^ \t].*)$"), not $ null res = (e, j ++ [mkJob $ extractMatches res], pj, el) -- Read job line
+        | let res = (l =~ "^[ \t]*(@[^ \t]+)[ \t]+([[:digit:]]+)[ \t]+([^ \t/]+)[ \t]+([^ \t].*)$"), not $ null res = (e, j, pj ++ [mkPeriodJob $ extractMatches res], el) -- Read period job line
+        | otherwise = (e, j, pj, el ++ [ln])
     extractMatches = tail . head
 
 -- Parse the date with the correct format
 parseDate :: String -> Maybe Day
 parseDate s = parseTimeM True defaultTimeLocale "%0Y%m%d" s :: Maybe Day
+
+printInvalidLinesWarning :: [InvalidParsedLine] -> IO ()
+printInvalidLinesWarning = mapM_ (\n -> putStrLn $ "Invalid syntax in " ++ yanacrontab ++ " on line " ++ show n ++ " - skipping this line")
 
 -- Decide if the job will be run today or not
 willRun :: Int -> Day -> Maybe Day -> Bool
@@ -128,7 +132,10 @@ toTry = do
     args <- getArgs
     if length args == 0 then do
         contents <- readFile yanacrontab
-        let (envs, jobs, periodJobs) = parseTabLines $ mergeTabLines contents
+        let (envs, jobs, periodJobs, errorLines) = parseTabLines $ mergeTabLines contents
+
+        printInvalidLinesWarning errorLines
+
         mapConcurrently runJob jobs
         return ()
     else return ()
