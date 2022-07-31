@@ -120,7 +120,7 @@ runJob job = do
 
     when run $ do
         createFile $ spool ++ jIdent job
-        threadDelay $ 60000000 * jDelays job
+        threadDelay $ 60000000 * jDelays job -- 60000000 (microseconds) is equal to 1 minute
 
         callCommand $ createCommand job currentDay
         putStrLn ("End: " ++ show run ++ " " ++ createCommand job currentDay)
