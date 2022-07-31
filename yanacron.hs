@@ -117,15 +117,12 @@ toTry :: IO ()
 toTry = do
     args <- getArgs
     if length args == 0 then do
-        tabExist <- doesFileExist yanacrontab
-        if tabExist
-            then do
-                contents <- readFile yanacrontab
-                let (envs, jobs, periodJobs) = parseTabLines $ mergeTabLines contents
-                mapConcurrently runJob jobs
-                return ()
-            else putStrLn "No yanacrontab available!"
+        contents <- readFile yanacrontab
+        let (envs, jobs, periodJobs) = parseTabLines $ mergeTabLines contents
+        mapConcurrently runJob jobs
+        return ()
     else return ()
 
 handler :: IOError -> IO ()
-handler e = ioError e
+handler e = do 
+    ioError e
