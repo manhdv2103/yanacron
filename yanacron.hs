@@ -1,5 +1,7 @@
 import Control.Concurrent (forkIO, threadDelay)
+import Control.Concurrent.Async (mapConcurrently)
 import Control.Exception
+import Control.Monad
 import Data.List
 import Data.Maybe
 import Data.Text (replace, pack, unpack)
@@ -35,10 +37,10 @@ type PeriodJobs = [PeriodJob]
 -- File and directory
 
 yanacrontab :: FilePath
-yanacrontab = "./yanacrontab"
+yanacrontab = "/home/vumanh/Documents/yanacron/yanacrontab"
 
 spool :: FilePath
-spool = "./spool/yanacron/"
+spool = "/home/vumanh/Documents/yanacron/spool/yanacron/"
 
 
 -- Data making functions
@@ -77,10 +79,14 @@ parseDate s = parseTimeM True defaultTimeLocale "%0Y%m%d" s :: Maybe Day
 willRun :: Int -> Day -> Maybe Day -> Bool
 willRun period currentDay lastRun = case lastRun of
     Nothing -> True
-    Just val -> daysDiff >= fromIntegral period
+    Just val -> daysDiff < 0 || daysDiff >= fromIntegral period
         where daysDiff = diffDays currentDay val
 
---createCommand :: String -> Int -> String
+createCommand :: Job -> Day -> String
+createCommand job currentDay = "/bin/sh -c \"" ++
+    (unpack $ replace (pack "\"") (pack "\\\"") (pack $ jCommand job)) ++ "\"; echo '" ++
+    (formatTime defaultTimeLocale "%0Y%m%d" currentDay) ++ "' > " ++ spool ++ jIdent job
+
 --runCommand :: String -> IO ()
 
 -- Run the job
@@ -95,12 +101,15 @@ runJob job = do
         then readFile spoolFile
         else return ""
 
-    let currentDay = utctDay currentTime
+    let currentDay = utctDay currentTime :: Day
         lastRun = parseDate lastRunStr
         run = willRun (jPeriods job) currentDay lastRun
 
-    putStrLn (show run ++ " " ++ jIdent job)
+    when run $ do
+        threadDelay $ 60000000 * jDelays job
 
+        callCommand $ createCommand job currentDay
+        putStrLn ("End: " ++ show run ++ " " ++ createCommand job currentDay)
 
 main = toTry `catch` handler
 
@@ -108,9 +117,14 @@ toTry :: IO ()
 toTry = do
     args <- getArgs
     if length args == 0 then do
-        contents <- readFile yanacrontab
-        let (envs, jobs, periodJobs) = parseTabLines $ mergeTabLines contents
-        mapM_ (forkIO . runJob) jobs
+        tabExist <- doesFileExist yanacrontab
+        if tabExist
+            then do
+                contents <- readFile yanacrontab
+                let (envs, jobs, periodJobs) = parseTabLines $ mergeTabLines contents
+                mapConcurrently runJob jobs
+                return ()
+            else putStrLn "No yanacrontab available!"
     else return ()
 
 handler :: IOError -> IO ()
