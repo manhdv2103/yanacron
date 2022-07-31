@@ -9,6 +9,7 @@ import Data.Time
 import Text.Regex.Posix
 import System.Directory
 import System.Environment
+import System.FilePath.Posix (takeDirectory)
 import System.IO     
 import System.IO.Error
 import System.Process
@@ -82,6 +83,14 @@ willRun period currentDay lastRun = case lastRun of
     Just val -> daysDiff < 0 || daysDiff >= fromIntegral period
         where daysDiff = diffDays currentDay val
 
+-- Create file if file does not exist
+-- Function taken and modified from https://stackoverflow.com/questions/58682357/how-to-create-a-file-and-its-parent-directories-in-haskell
+createFile :: FilePath -> IO ()
+createFile path = do
+    createDirectoryIfMissing True $ takeDirectory path
+    writeFile path ""
+
+-- Create the command to run in the shell
 createCommand :: Job -> Day -> String
 createCommand job currentDay = "/bin/sh -c \"" ++
     (unpack $ replace (pack "\"") (pack "\\\"") (pack $ jCommand job)) ++ "\"; echo '" ++
@@ -106,6 +115,7 @@ runJob job = do
         run = willRun (jPeriods job) currentDay lastRun
 
     when run $ do
+        createFile $ spool ++ jIdent job
         threadDelay $ 60000000 * jDelays job
 
         callCommand $ createCommand job currentDay
