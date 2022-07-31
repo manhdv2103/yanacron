@@ -102,7 +102,7 @@ runJob job = do
         else return ""
 
     let currentDay = utctDay currentTime :: Day
-        lastRun = parseDate lastRunStr
+        lastRun = parseDate $ take 8 lastRunStr
         run = willRun (jPeriods job) currentDay lastRun
 
     when run $ do
