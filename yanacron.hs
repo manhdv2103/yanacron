@@ -77,8 +77,9 @@ parseTabLines = foldl' pushLine ([], [], [], []) . createLineNumber
 parseDate :: String -> Maybe Day
 parseDate s = parseTimeM True defaultTimeLocale "%0Y%m%d" s :: Maybe Day
 
+-- Print warning of invalid lines from the yanacrontab file
 printInvalidLinesWarning :: [InvalidParsedLine] -> IO ()
-printInvalidLinesWarning = mapM_ (\n -> putStrLn $ "Invalid syntax in " ++ yanacrontab ++ " on line " ++ show n ++ " - skipping this line")
+printInvalidLinesWarning = mapM_ (\n -> putStrLn $ "yanacron: Invalid syntax in " ++ yanacrontab ++ " on line " ++ show n ++ " - skipping this line")
 
 -- Decide if the job will be run today or not
 willRun :: Int -> Day -> Maybe Day -> Bool
@@ -102,11 +103,9 @@ createCommand job currentDay = "/bin/sh -c \"" ++
 
 --runCommand :: String -> IO ()
 
--- Run the job
-runJob :: Job -> IO()
-runJob job = do
-    currentTime <- getCurrentTime
-
+-- Run the job, return True if the job was run, False otherwise
+runJob :: UTCTime -> Job -> IO Bool
+runJob currentTime job = do
     let spoolFile = spool ++ (jIdent job)
     fileExist <- doesFileExist spoolFile
 
@@ -125,18 +124,29 @@ runJob job = do
         callCommand $ createCommand job currentDay
         putStrLn ("End: " ++ show run ++ " " ++ createCommand job currentDay)
 
+    return run
+
 main = toTry `catch` handler
 
 toTry :: IO ()
 toTry = do
     args <- getArgs
     if length args == 0 then do
+        currentTime <- getCurrentTime
+
+        putStrLn $ "Yanacron started on " ++ formatTime defaultTimeLocale "%0Y-%m-%d" currentTime
+
         contents <- readFile yanacrontab
         let (envs, jobs, periodJobs, errorLines) = parseTabLines $ mergeTabLines contents
 
         printInvalidLinesWarning errorLines
 
-        mapConcurrently runJob jobs
+        jobsRun <- mapConcurrently (runJob currentTime) jobs 
+
+        -- Taken from https://stackoverflow.com/questions/573751/using-foldl-to-count-number-of-true-values
+        let totalJobsRun = sum $ map fromEnum jobsRun
+        
+        putStrLn ("Normal exit (" ++ show totalJobsRun ++ " job" ++ (if totalJobsRun == 1 then "" else "s") ++ " run)")
         return ()
     else return ()
 
