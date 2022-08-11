@@ -13,6 +13,8 @@ import System.FilePath.Posix (takeDirectory)
 import System.IO     
 import System.IO.Error
 import System.Process
+import qualified Data.ByteString.Char8 as B -- Use this to read/write file. Reason: https://stackoverflow.com/questions/13097520/error-reading-and-writing-same-file-simultaneously-in-haskell
+import Data.ByteString.UTF8 (toString, fromString)
 
 -- Data & Type
 
@@ -98,10 +100,7 @@ createFile path = do
 -- Create the command to run in the shell
 createCommand :: Job -> Day -> String
 createCommand job currentDay = "/bin/sh -c \"" ++
-    (unpack $ replace (pack "\"") (pack "\\\"") (pack $ jCommand job)) ++ "\"; echo '" ++
-    (formatTime defaultTimeLocale "%0Y%m%d" currentDay) ++ "' > " ++ spool ++ jIdent job
-
---runCommand :: String -> IO ()
+    (unpack $ replace (pack "\"") (pack "\\\"") (pack $ jCommand job)) ++ "\""
 
 -- Run the job, return True if the job was run, False otherwise
 runJob :: UTCTime -> Job -> IO Bool
@@ -110,7 +109,7 @@ runJob currentTime job = do
     fileExist <- doesFileExist spoolFile
 
     lastRunStr <- if fileExist
-        then readFile spoolFile
+        then fmap toString $ B.readFile spoolFile
         else return ""
 
     let currentDay = utctDay currentTime :: Day
@@ -122,6 +121,7 @@ runJob currentTime job = do
         threadDelay $ 60000000 * jDelays job -- 60000000 (microseconds) is equal to 1 minute
 
         callCommand $ createCommand job currentDay
+        B.writeFile spoolFile . fromString $ formatTime defaultTimeLocale "%0Y%m%d" currentDay ++ "\n"
         putStrLn ("End: " ++ show run ++ " " ++ createCommand job currentDay)
 
     return run
