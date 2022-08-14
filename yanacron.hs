@@ -47,13 +47,13 @@ spool = "/home/vumanh/Documents/yanacron/spool/yanacron/"
 -- Data making functions
 
 mkEnv :: [String] -> Env
-mkEnv xs = Env {envVar=xs !! 0, value=xs !! 1}
+mkEnv xs = Env (xs !! 0) (xs !! 1)
 
 mkJob :: [String] -> Job
-mkJob xs = Job {jPeriods=read (xs !! 0), jDelays=read (xs !! 1), jIdent=xs !! 2, jCommand=xs !! 3}
+mkJob xs = Job (read (xs !! 0)) (read (xs !! 1)) (xs !! 2) (xs !! 3)
 
 mkPeriodJob :: [String] -> PeriodJob
-mkPeriodJob xs = PeriodJob {pjPeriods=xs !! 0, pjDelays=read (xs !! 1), pjIdent=xs !! 2, pjCommand=xs !! 3}
+mkPeriodJob xs = PeriodJob (xs !! 0) (read (xs !! 1)) (xs !! 2) (xs !! 3)
 
 
 -- Merge lines separated by the backslash (\)
