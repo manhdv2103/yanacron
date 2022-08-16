@@ -9,6 +9,7 @@ import Data.Time
 import Text.Regex.Posix
 import System.Directory
 import System.Environment
+import System.FileLock
 import System.FilePath.Posix (takeDirectory)
 import System.IO     
 import System.IO.Error
@@ -106,25 +107,29 @@ createCommand job currentDay = "/bin/sh -c \"" ++
 runJob :: UTCTime -> Job -> IO Bool
 runJob currentTime job = do
     let spoolFile = spool ++ (jIdent job)
-    fileExist <- doesFileExist spoolFile
+    --fileExist <- doesFileExist spoolFile
 
-    lastRunStr <- if fileExist
-        then fmap toString $ B.readFile spoolFile
-        else return ""
+    result <- withTryFileLock spoolFile Exclusive (\x -> do
+        lastRunStr <- fmap toString $ B.readFile spoolFile
 
-    let currentDay = utctDay currentTime :: Day
-        lastRun = parseDate $ take 8 lastRunStr
-        run = willRun (jPeriods job) currentDay lastRun
+        let currentDay = utctDay currentTime :: Day
+            lastRun = parseDate $ take 8 lastRunStr
+            run = willRun (jPeriods job) currentDay lastRun
 
-    when run $ do
-        createFile $ spool ++ jIdent job
-        threadDelay $ 60000000 * jDelays job -- 60000000 (microseconds) is equal to 1 minute
+        when run $ do
+            createFile $ spool ++ jIdent job
+            threadDelay $ 60000000 * jDelays job -- 60000000 (microseconds) is equal to 1 minute
 
-        callCommand $ createCommand job currentDay
-        B.writeFile spoolFile . fromString $ formatTime defaultTimeLocale "%0Y%m%d" currentDay ++ "\n"
-        putStrLn ("End: " ++ show run ++ " " ++ createCommand job currentDay)
+            callCommand $ createCommand job currentDay
+            B.writeFile spoolFile . fromString $ formatTime defaultTimeLocale "%0Y%m%d" currentDay ++ "\n"
+            putStrLn ("End: " ++ show run ++ " " ++ createCommand job currentDay)
 
-    return run
+        return run)
+
+    if result == Nothing then putStrLn ("Job '" ++ jIdent job ++ "' locked by another yanacron - skipping")
+    else return ()
+
+    return $ maybe False id result
 
 main = toTry `catch` handler
 
