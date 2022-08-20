@@ -36,13 +36,13 @@ data PeriodJob = PeriodJob { pjPeriods :: String
 type InvalidParsedLine = Int
 type ParseTabGroup = ([Env], [Job], [PeriodJob], [InvalidParsedLine])
 
--- File and directory
+-- Files and directories
 
 yanacrontab :: FilePath
-yanacrontab = "/home/vumanh/Documents/yanacron/yanacrontab"
+yanacrontab = "/.yanacron/yanacrontab"
 
 spool :: FilePath
-spool = "/home/vumanh/Documents/yanacron/spool/yanacron/"
+spool = "/.yanacron/spool/"
 
 
 -- Data making functions
@@ -81,8 +81,8 @@ parseDate :: String -> Maybe Day
 parseDate s = parseTimeM True defaultTimeLocale "%0Y%m%d" s :: Maybe Day
 
 -- Print warning of invalid lines from the yanacrontab file
-printInvalidLinesWarning :: [InvalidParsedLine] -> IO ()
-printInvalidLinesWarning = mapM_ (\n -> putStrLn $ "yanacron: Invalid syntax in " ++ yanacrontab ++ " on line " ++ show n ++ " - skipping this line")
+printInvalidLinesWarning :: FilePath -> [InvalidParsedLine] -> IO ()
+printInvalidLinesWarning yanacrontabFile xs = mapM_ (\n -> putStrLn $ "yanacron: Invalid syntax in " ++ yanacrontabFile ++ " on line " ++ show n ++ " - skipping this line") xs
 
 -- Decide if the job will be run today or not
 willRun :: Int -> Day -> Maybe Day -> Bool
@@ -90,13 +90,6 @@ willRun period currentDay lastRun = case lastRun of
     Nothing -> True
     Just val -> daysDiff < 0 || daysDiff >= fromIntegral period
         where daysDiff = diffDays currentDay val
-
--- Create file if file does not exist
--- Function taken and modified from https://stackoverflow.com/questions/58682357/how-to-create-a-file-and-its-parent-directories-in-haskell
-createFile :: FilePath -> IO ()
-createFile path = do
-    createDirectoryIfMissing True $ takeDirectory path
-    writeFile path ""
 
 -- Create the command to run in the shell
 createCommand :: Job -> Day -> String
@@ -106,9 +99,12 @@ createCommand job currentDay = "/bin/sh -c \"" ++
 -- Run the job, return True if the job was run, False otherwise
 runJob :: UTCTime -> Job -> IO Bool
 runJob currentTime job = do
-    let spoolFile = spool ++ (jIdent job)
+    home <- getHomeDirectory
+    let spoolDir = home ++ spool
+        spoolFile = spoolDir ++ jIdent job
     --fileExist <- doesFileExist spoolFile
 
+    createDirectoryIfMissing True spoolDir
     result <- withTryFileLock spoolFile Exclusive (\x -> do
         lastRunStr <- fmap toString $ B.readFile spoolFile
 
@@ -117,14 +113,15 @@ runJob currentTime job = do
             run = willRun (jPeriods job) currentDay lastRun
 
         when run $ do
-            createFile $ spool ++ jIdent job
+            writeFile spoolFile ""
             threadDelay $ 60000000 * jDelays job -- 60000000 (microseconds) is equal to 1 minute
 
             callCommand $ createCommand job currentDay
             B.writeFile spoolFile . fromString $ formatTime defaultTimeLocale "%0Y%m%d" currentDay ++ "\n"
             putStrLn ("End: " ++ show run ++ " " ++ createCommand job currentDay)
 
-        return run)
+        return run
+        )
 
     if result == Nothing then putStrLn ("Job '" ++ jIdent job ++ "' locked by another yanacron - skipping")
     else return ()
@@ -137,14 +134,17 @@ toTry :: IO ()
 toTry = do
     args <- getArgs
     if length args == 0 then do
+        home <- getHomeDirectory
         currentTime <- getCurrentTime
+
+        let yanacrontabFile = home ++ yanacrontab
 
         putStrLn $ "Yanacron started on " ++ formatTime defaultTimeLocale "%0Y-%m-%d" currentTime
 
-        contents <- readFile yanacrontab
+        contents <- readFile yanacrontabFile
         let (envs, jobs, periodJobs, errorLines) = parseTabLines $ mergeTabLines contents
 
-        printInvalidLinesWarning errorLines
+        printInvalidLinesWarning yanacrontabFile errorLines
 
         jobsRun <- mapConcurrently (runJob currentTime) jobs 
 
