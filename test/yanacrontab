@@ -1,0 +1,31 @@
+# ./test/yanacrontab: test configuration file for yanacron
+
+# See anacron(8) and anacrontab(5) for details. (yanacron works mostly the same as anacron)
+
+# empty line
+
+# line with white-space chars
+                　　                   					
+
+# environment variables
+SHELL=/bin/sh
+PATH=/sbin:/bin:/usr/sbin:/usr/bin
+RANDOM_DELAY=30
+
+# Anacron jobs will start between 6am and 8am.
+START_HOURS_RANGE=6-8
+
+# delay will be 5 minutes + RANDOM_DELAY for cron.daily
+1              5    cron.daily          echo "yanacron daily"
+1         \
+7    cron.dai\
+lybreak ec\
+ho "yanacron daily break"
+@daily         10   cron.daily2         echo "yanacron daily 2"
+@daily         10   cron.daily          echo "yanacron daily 3"
+3              15   cron.3days          echo "yanacron 3 days"
+@weekly        30   cron.weekly         echo "yanacron weekly"
+@monthly       45   cron.monthly        echo "yanacron monthly"
+not-exist-lol  55   cron.not-exist      echo "yanacron not exist"
+300            num  cron.num            echo "yanacron num"
+
