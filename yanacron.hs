@@ -102,7 +102,9 @@ runJob currentTime job = do
     home <- getHomeDirectory
     let spoolDir = home ++ spool
         spoolFile = spoolDir ++ jIdent job
-    --fileExist <- doesFileExist spoolFile
+    fileExist <- doesFileExist spoolFile
+    if not fileExist then B.writeFile spoolFile ""
+    else return ()
 
     createDirectoryIfMissing True spoolDir
     result <- withTryFileLock spoolFile Exclusive (\x -> do
@@ -113,7 +115,6 @@ runJob currentTime job = do
             run = willRun (jPeriods job) currentDay lastRun
 
         when run $ do
-            writeFile spoolFile ""
             threadDelay $ 60000000 * jDelays job -- 60000000 (microseconds) is equal to 1 minute
 
             callCommand $ createCommand job currentDay
