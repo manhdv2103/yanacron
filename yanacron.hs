@@ -103,7 +103,7 @@ runJob currentTime job = do
     let spoolDir = home ++ spool
         spoolFile = spoolDir ++ jIdent job
     fileExist <- doesFileExist spoolFile
-    if not fileExist then B.writeFile spoolFile ""
+    if not fileExist then B.writeFile spoolFile $ fromString ""
     else return ()
 
     createDirectoryIfMissing True spoolDir
