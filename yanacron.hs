@@ -15,7 +15,7 @@ import System.IO
 import System.IO.Error
 import System.Process
 import qualified Data.ByteString.Char8 as B -- Use this to read/write file. Reason: https://stackoverflow.com/questions/13097520/error-reading-and-writing-same-file-simultaneously-in-haskell
-import Data.ByteString.UTF8 (toString, fromString)
+import qualified Data.ByteString.UTF8 as B (toString, fromString)
 
 -- Data & Type
 
@@ -56,6 +56,16 @@ mkJob xs = Job (read (xs !! 0)) (read (xs !! 1)) (xs !! 2) (xs !! 3)
 mkPeriodJob :: [String] -> PeriodJob
 mkPeriodJob xs = PeriodJob (xs !! 0) (read (xs !! 1)) (xs !! 2) (xs !! 3)
 
+-- Take the path relative to the home directory and return the absolute path
+getAbsPath :: FilePath -> IO (FilePath)
+getAbsPath path = fmap (++ path) getHomeDirectory
+
+-- Create file and its parent directory if not exist
+createFile :: FilePath -> IO ()
+createFile path = do
+  createDirectoryIfMissing True $ takeDirectory path
+  fileExist <- doesFileExist path
+  when (not fileExist) $ B.writeFile path $ B.fromString ""
 
 -- Merge lines separated by the backslash (\)
 mergeTabLines :: String -> [String]
@@ -99,16 +109,11 @@ createCommand job currentDay = "/bin/sh -c \"" ++
 -- Run the job, return True if the job was run, False otherwise
 runJob :: UTCTime -> Job -> IO Bool
 runJob currentTime job = do
-    home <- getHomeDirectory
-    let spoolDir = home ++ spool
-        spoolFile = spoolDir ++ jIdent job
-    fileExist <- doesFileExist spoolFile
-    if not fileExist then B.writeFile spoolFile $ fromString ""
-    else return ()
+    spoolFile <- getAbsPath $ spool ++ jIdent job
+    createFile spoolFile
 
-    createDirectoryIfMissing True spoolDir
     result <- withTryFileLock spoolFile Exclusive (\x -> do
-        lastRunStr <- fmap toString $ B.readFile spoolFile
+        lastRunStr <- fmap B.toString $ B.readFile spoolFile
 
         let currentDay = utctDay currentTime :: Day
             lastRun = parseDate $ take 8 lastRunStr
@@ -118,7 +123,7 @@ runJob currentTime job = do
             threadDelay $ 60000000 * jDelays job -- 60000000 (microseconds) is equal to 1 minute
 
             callCommand $ createCommand job currentDay
-            B.writeFile spoolFile . fromString $ formatTime defaultTimeLocale "%0Y%m%d" currentDay ++ "\n"
+            B.writeFile spoolFile . B.fromString $ formatTime defaultTimeLocale "%0Y%m%d" currentDay ++ "\n"
             putStrLn ("End: " ++ show run ++ " " ++ createCommand job currentDay)
 
         return run
@@ -135,10 +140,8 @@ toTry :: IO ()
 toTry = do
     args <- getArgs
     if length args == 0 then do
-        home <- getHomeDirectory
         currentTime <- getCurrentTime
-
-        let yanacrontabFile = home ++ yanacrontab
+        yanacrontabFile <- getAbsPath yanacrontab
 
         putStrLn $ "Yanacron started on " ++ formatTime defaultTimeLocale "%0Y-%m-%d" currentTime
 
